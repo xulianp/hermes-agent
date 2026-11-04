@@ -1,0 +1,25 @@
+[Unit]
+Description=memory-tencentdb sidecars (Gateway 8420, embed 8421, llm-proxy 8422)
+Documentation=file:%h/.hermes/hermes-agent/ops/memory-tencentdb/README.md
+After=network-online.target
+Wants=network-online.target
+# Deliberately NOT PartOf=hermes-gateway.service: the gateway's ExecStopPost runs
+# `gateway.cgroup_cleanup`, which kills every child in its cgroup. These are
+# machine-wide daemons with their own persistent data, so they live in their own
+# unit and survive `hermes gateway restart`.
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=%h/.hermes/memory-tencentdb
+# supervise.sh is still the owner of the three processes; systemd only gives
+# them a cgroup that is not the gateway's.
+ExecStart=/bin/bash %h/.hermes/memory-tencentdb/supervise.sh start
+ExecStop=/bin/bash %h/.hermes/memory-tencentdb/supervise.sh stop
+TimeoutStartSec=150
+TimeoutStopSec=40
+# Keep the started children in the unit's cgroup; a stop still tears them down.
+KillMode=control-group
+
+[Install]
+WantedBy=default.target

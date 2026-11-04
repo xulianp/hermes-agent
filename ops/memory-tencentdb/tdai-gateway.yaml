@@ -1,0 +1,103 @@
+# ============================================================
+# TDAI Gateway — 本机 (Hermes + memory-tencentdb) 配置
+#
+# 由 ~/.hermes/memory-tencentdb/start-gateway.sh 启动
+#   TDAI_GATEWAY_CONFIG 指向本文件 (优先级最高)
+#   TDAI_DATA_DIR        数据落盘根目录
+#   TDAI_LLM_*           LLM 凭证 (从 ~/.hermes/.env 注入, 不写在本文件)
+# ============================================================
+
+deployMode: standalone
+stateBackend: "local"
+
+server:
+  port: 8420
+  host: "127.0.0.1"
+  # apiKey 留空 → 仅本机回环可访问 (provider 发 Authorization: Bearer local)
+
+data:
+  baseDir: "~/.memory-tencentdb/memory-tdai"
+
+# ── LLM ────────────────────────────────────────────────────
+# ⚠️ Hermes 自己用 MiniMax 走的是 anthropic_messages 协议 (/anthropic 端点),
+#    而 Gateway 用 OpenAI SDK (@ai-sdk/openai) → 必须指向 OpenAI 兼容的 /v1。
+#    已实测: https://api.minimaxi.com/v1 → HTTP 200 + 正常返回 content。
+#    provider= "openai" 即直连 (proxy 模式需要 context_proxy, 本机不用)。
+llm:
+  provider: "openai"
+  # ⚠️ 走本地 llm-proxy (127.0.0.1:8422) 而不是直连 MiniMax。
+  # 原因: MiniMax-M3 默认把 <think>...</think> 思考块混在 content 里, 而上游
+  # l1-extractor 直接 JSON.parse(content) → PARSE_FAIL → 抽取结果 0
+  # → L1 无新增 → L2 cursor 不推进 → L2/L3 永远滞后 (实测 20/22 次 extracted=0)。
+  # 上游完全没有处理 <think> 的代码, 且 AI SDK 的 providerOptions 不透传
+  # 未知 body 字段 (实测 providerOptions.openai.thinking 被忽略) → 只能靠代理注入。
+  # 代理只对"无 tools 且 prompt 含 L1 标记"的任务注入 thinking.type=disabled;
+  # L2/L3 带 tools (读写 scene_blocks/persona.md), 保留 thinking 不受影响。
+  baseUrl: "http://127.0.0.1:8422/v1"
+  apiKey: "${TDAI_LLM_API_KEY}"
+  model: "MiniMax-M3"
+  maxTokens: 32000
+  timeoutMs: 120000
+
+# ── Memory 引擎 ────────────────────────────────────────────
+memory:
+  promptMode: code
+
+  capture:
+    enabled: true
+
+  extraction:
+    enabled: true
+    enableDedup: true
+    maxMemoriesPerSession: 20
+
+  persona:
+    triggerEveryN: 50
+    maxScenes: 15
+
+  pipeline:
+    # ⚠️ provider 的 sync_turn 每轮只发 1 条 user 消息 → rounds=1
+    #    → everyNConversations=1 才能"每轮即抽取"; 设 3 要等 3 轮对话.
+    #    单机长会话场景下每轮抽取的 LLM 成本较高, 这里取 1 保证记忆及时,
+    #    若发现 token 消耗过大可调高 (或依赖下面的 l1IdleTimeoutSeconds 兜底).
+    everyNConversations: 1
+    enableWarmup: true
+    l1IdleTimeoutSeconds: 60
+    l2DelayAfterL1Seconds: 90
+    l2MinIntervalSeconds: 900
+    l2MaxIntervalSeconds: 3600
+
+  recall:
+    enabled: true
+    maxResults: 5
+    scoreThreshold: 0.3
+    strategy: "hybrid"
+    timeoutMs: 5000
+
+  # ── 存储后端 ──────────────────────────────────────────────
+  # sqlite: 本地 SQLite (零外部依赖, 无 TCVDB 凭证要求)
+  storeBackend: "sqlite"
+
+  embedding:
+    # ⚠️ MiniMax 的 embedding 接口不是 OpenAI 协议 (要 texts/type, 返 vectors),
+    #    而 Gateway 的远程 embedding 客户端写死 OpenAI 协议 (input, 期望 data[].embedding)
+    #    → 用本地 shim 做协议转换: ~/.hermes/memory-tencentdb/embedding-shim.py (127.0.0.1:8421)
+    #
+    # 为什么需要 embedding: 开了它, L1 dedup 才能用**向量余弦**做候选召回 →
+    #   之前只有 BM25 (FTS5) 降级路径, 拦不住"同一事实的不同措辞" (实测 3 条近重复全放行).
+    provider: "openai"
+    baseUrl: "http://127.0.0.1:8421/v1"
+    apiKey: "${TDAI_LLM_API_KEY}"      # shim 不校验, 但 Gateway 要求非空
+    model: "BAAI/bge-small-zh-v1.5"    # 本地 bge 中文模型 (由 local-embed.py 提供, 512 维)
+    dimensions: 512                    # 必须与模型实际维度一致
+    sendDimensions: false              # 本地服务忽略 dimensions 参数 → 保持 false
+    timeoutMs: 60000                   # 本地 CPU 推理, 放宽超时
+
+  bm25:
+    enabled: true
+    language: "zh"
+
+# ── Skill 模块 (可选) ──────────────────────────────────────
+# 本次只做 Memory, Skill 模块先关掉 (它需要额外 llm 抽取, 增加 token 消耗)
+skill:
+  enabled: false

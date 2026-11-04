@@ -1,0 +1,13 @@
+name: memory_tencentdb
+version: 1.0.0
+description: "Four-layer memory (L0 conversation → L1 memories → L2 scenes → L3 persona) wired into the turn pipeline for every Hermes surface. Captures each turn's transcript automatically, injects recall into the current user message, and supervises the local Node Gateway / embedding / LLM-proxy sidecars."
+author: xlp
+kind: standalone
+provides_tools:
+  - memory_tencentdb_memory_search
+  - memory_tencentdb_conversation_search
+  - memory_tencentdb_read_scene
+provides_hooks:
+  - on_session_start
+  - pre_llm_call
+  - post_llm_call

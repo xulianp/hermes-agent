@@ -34,7 +34,7 @@
 
 安装命令(实测):
 ```bash
-UV=/home/xlp/.hermes/tools/uv-0.12.3-linux-x64/uv
+UV="$HOME/.hermes/tools/uv-0.12.3-linux-x64/uv"
 cd ~/.hermes/memory-tencentdb
 $UV venv --python 3.11 .venv          # 3.11 已在 uv 本地缓存,免下载
 $UV pip install --python .venv/bin/python torch --index-url https://download.pytorch.org/whl/cpu   # 必须 CPU 索引,否则拉 CUDA 版 ~2.5GB

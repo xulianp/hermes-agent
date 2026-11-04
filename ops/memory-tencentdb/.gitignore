@@ -1,0 +1,12 @@
+# memory-tencentdb 运维层的运行时产物（不入库）。
+# 模式相对本目录：原有写法 `ops/memory-tencentdb/*.log` 在本文件里永远匹配不到。
+*.log
+pids/
+models/
+.venv/
+__pycache__/
+backups/
+
+# 召回度量脚本硬编码了真实租户 ID 与私人记忆内容（研究结论、内部仓库名），
+# 只在本机运行，绝不入库。备份目录里保留一份即可。
+measure_recall.py
